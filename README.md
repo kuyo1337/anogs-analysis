@@ -2,12 +2,13 @@
 
 ## Summary
 
-I made this repo just want to do reverse engineering analysis of **AnoSDK v6.8.31.11159** for learn and improvement purpose. The anogs binary itself contains **approximately 6,000-8,000 functions**, included advanced obfuscation techniques, and extensive data collection capabilities.
+[Huy Nguyen](https://github.com/34306) created this repository to perform reverse engineering analysis of **AnoSDK v6.8.31.11159** for learning and improvement purposes. The AnoGS binary itself contains **approximately 6,000–8,000 functions**, includes advanced obfuscation techniques, and has extensive data collection capabilities.
 
-I also checked the open source documentation of them, you can read it [here, in Chinese](https://github.com/silentninjabee/ACE-Anticheat-SDK-Documentation/blob/master/10.0.0_%E6%89%8B%E6%B8%B8%E5%8F%8D%E5%A4%96%E6%8C%82SDK/10.2.9_IOS%20C%E7%89%88%E6%8E%A5%E5%85%A5%E6%95%99%E7%A8%8B.md) (well I also don't know Chinese so just use Google Translate)
+Me(kuyo) is here to learn more about mobile anti-cheats as well. Please note that we are reversing different versions of AnoSDK (Huy Nguyen is using v6.8.31.11159, and I am using v7.0.49.29225), so the results might be slightly different.
 
-One more thing is if you blocked or delete the data it created to hash the binary file, the game will not ban you at the right time you play, but it will ban you after the server doing analysis (they added check for almost game base on game_id and user_info).
+One more thing: if you block or delete the data it generates to hash the binary file, the game may not ban you immediately while playing, but it could ban you later after the server performs its analysis (they added checks for almost every game based on `game_id` and `user_info`).
 
+Also, if you want to reverse-engineer ts with me, please message me on telegram: `kuyosense`.
 ---
 
 ## Binary Architecture Analysis
@@ -39,44 +40,164 @@ Core SDK:           ▌ 0.1% (~6 functions)
 ## Core System Analysis
 
 ### 1: SDK Entry Points
+---
 
-The foundation of AnoSDK contains these functions:
+## Exported Entry Points
 
-| Address | Function | Purpose | Concern Level  |
-|---------|----------|---------|--------------|
-| `0x10fe8c` | `_AnoSDKInit` | SDK initialization entry point | High |
-| `0x10febc` | `_AnoSDKSetUserInfo` | User information setup for monitoring | High |
-| `0x10ffd0` | `_AnoSDKOnRecvData` | External data reception handler | High |
-| `0x10ff58` | `_AnoSDKOnPause` | Background transition handler | Medium |
-| `0x10ff78` | `_AnoSDKOnResume` | Foreground transition handler | Medium |
-| `0x110028` | `_AnoSDKIoctl` | Privacy compliance control interface | High |
+| Address    | Function                        | Purpose                               | Concern Level |
+| ---------- | ------------------------------- | ------------------------------------- | ------------- |
+| `0x116428` | `_AnoSDKInit`                   | Basic initialization                  | High          |
+| `0x116454` | `_AnoSDKInitEx`                 | Extended initialization (license, ID) | High          |
+| `0x116458` | `_AnoSDKSetUserInfo`            | Attach user information               | High          |
+| `0x1164F4` | `_AnoSDKOnPause`                | Lifecycle hook (background)           | Medium        |
+| `0x116514` | `_AnoSDKOnResume`               | Lifecycle hook (foreground)           | Medium        |
+| `0x11656C` | `_AnoSDKOnRecvData`             | Data reception handler (server/IPC)   | High          |
+| `0x1165C4` | `_AnoSDKIoctl`                  | Command/control interface             | High          |
+| `0x1165C0` | `_AnoSDKIoctlOld`               | Legacy control interface              | Medium        |
+| `0x1164A4` | `_AnoSDKSetUserInfoWithLicense` | User info setup w/ license validation | High          |
+| `0x116534` | `_AnoSDKGetReportData`          | Report retrieval                      | High          |
+| `0x1165CC` | `_AnoSDKGetReportData2`         | Report retrieval variant              | High          |
+| `0x1165D0` | `_AnoSDKGetReportData3`         | Report retrieval variant              | High          |
+| `0x1165D8` | `_AnoSDKGetReportData4`         | Report retrieval variant              | High          |
+| `0x116550` | `_AnoSDKDelReportData`          | Report cleanup                        | Medium        |
+| `0x1165D4` | `_AnoSDKDelReportData3`         | Report cleanup variant                | Medium        |
+| `0x1165DC` | `_AnoSDKDelReportData4`         | Report cleanup variant                | Medium        |
+| `0x1165C8` | `_AnoSDKFree`                   | Memory/resource cleanup               | Medium        |
+| `0x1165E4` | `_AnoSDKRegistInfoListener`     | Register info callback listener       | Medium        |
+| `0x1165E0` | `_AnoSDKOnRecvSignature`        | Signature validation handler          | High          |
 
-### 2: Initialization System
+---
 
-AnoSDK employs a sophisticated distributed initialization system with **51 separate initialization functions** (`InitFunc_0` to `InitFunc_50`), making analysis significantly more challenging, if you want to have a deeper analysis, you could contribute to this project. Here are a few function i can checked:
+## Core Function Mapping
 
-| Address | Function | Purpose | Concern Level |
-|---------|----------|---------|---------------|
-| `0x1ef30` | `InitFunc_0` | String Decryption Init - Initialize string decrypt system | High |
-| `0x450cc` | `InitFunc_1` | Memory Management Init - Setup memory management | Medium |
-| `0x6ec48` | `InitFunc_2` | Thread Management Init - Setup threading system | Medium |
-| `0xa6e70` | `InitFunc_3` | Security Init - Initialize security subsystem | High |
-| `0xab398` | `InitFunc_4` | Monitoring Init - Setup monitoring capabilities | High |
-| `0xbfcd0` | `InitFunc_5` | Network Init - Initialize network communication | Medium |
+Most of the above are wrappers,the **actual work** is done in:
 
-```cpp
-//initialization sequence
-InitFunc_0  → String decryption system setup
-InitFunc_1  → Memory management initialization  
-InitFunc_2  → Threading system activation
-InitFunc_3  → Security subsystem deployment
-InitFunc_4  → Monitoring capabilities activation
-// ... + 46 additional subsystems
+* **`sub_48BA4`**
+
+  * Core dispatcher for Init, InitEx, and SetUserInfo.
+  * Handles global state setup and user data binding.
+
+* **`AnoSDKInitEx_0`**
+
+  * Extended initialization with string parameters.
+  * Performs string concatenation and validation.
+  * Calls into:
+
+    * `sub_117174` (string lookup/decrypt)
+    * `sub_2D304` (buffer formatting)
+    * `sub_10A97C` (object allocator)
+    * `sub_10C494` (data registrar)
+    * `sub_3D1DC` (final commit/init).
+
+---
+
+## Example Decompiled Snippets
+
+### `_AnoSDKInit`
+
+```c
+__int64 __fastcall AnoSDKInit(int a1) {
+    sub_44BBC();                  // Pre-initialization (TLS, globals)
+    return sub_48BA4(a1 >= 0, 0); // Delegate to core
+}
+```
+
+### `_AnoSDKInitEx`
+
+```c
+__int64 AnoSDKInitEx() {
+    return AnoSDKInitEx_0();
+}
+```
+
+### `AnoSDKInitEx_0`
+
+```c
+// Extended init with optional string argument
+v10 = (const char *)sub_117174(110);          // fetch string template
+v11 = sub_2D304(v9, 255, "%s%s", v10, a2);   // concat template + arg
+v12 = sub_10A97C(v11);                       // allocate/init structure
+sub_10C494(v12, v9);                         // register structure
+sub_3D1DC(v18);                              // commit initialization
 ```
 
 ---
 
-## Obfuscation
+## Behavior Summary
+
+* **Initialization (`_AnoSDKInit`, `_AnoSDKInitEx`, `_AnoSDKSetUserInfo`)**
+  -> All converge into `sub_48BA4`.
+  -> Responsible for starting all monitoring systems and binding user/game identifiers.
+
+* **Lifecycle (`_AnoSDKOnPause`, `_AnoSDKOnResume`)**
+  -> Handle transitions between app states.
+  -> Restart/stop background monitoring subsystems.
+
+* **Control (`_AnoSDKIoctl`, `_AnoSDKIoctlOld`)**
+  -> Provide external configuration.
+  -> Dangerous since it may unlock hidden features or enforce checks remotely.
+
+* **Data Handling (`_AnoSDKOnRecvData`, `_AnoSDKOnRecvSignature`)**
+  -> Process incoming data from server or game host.
+  -> Validates signatures & updates SDK state.
+
+* **Reporting (`_AnoSDKGetReportData*`, `_AnoSDKDelReportData*`)**
+  -> Collect and manage report structures before sending.
+  -> Variants suggest multiple report formats (TDM/TSS).
+
+* **Cleanup (`_AnoSDKFree`)**
+  -> Free resources and internal allocations.
+
+* **Callbacks (`_AnoSDKRegistInfoListener`)**
+  -> Lets game register a callback for receiving SDK info.
+
+---
+
+
+### 2: Initialization System
+
+AnoSDK employs a sophisticated distributed initialization system with **61 separate initialization functions** (`InitFunc_0` to `InitFunc_60`), making analysis significantly more challenging, if you want to have a deeper analysis, you could contribute to this project. Here are a few function i can checked:
+
+
+| Address    | Function      | Purpose                                                         | Concern Level | Notes / Security Impact                                                                  |
+| ---------- | ------------- | --------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `0x2066C`  | `InitFunc_0`  | String Decryption Init (loads string decrypt handlers)          | **High**      | Critical: handles runtime decryption of SDK strings; tampering may expose secrets.       |
+| `0x46A60`  | `InitFunc_1`  | Memory Cleanup Init (list cleanup + free on exit)               | Medium        | Medium: mainly housekeeping; misuse could cause leaks.                                   |
+| `0x4F618`  | `InitFunc_2`  | Semaphore System Init (sem\_open / sem\_close / unlink mgmt)    | Medium        | Medium: synchronization; misconfig could lead to deadlocks.                              |
+| `0x715F8`  | `InitFunc_3`  | Security Subsystem Init (secure structures + mutex cleanup)     | **High**      | Critical: sets up security-related structures; crucial for integrity.                    |
+| `0xAA018`  | `InitFunc_4`  | Linked List Manager Init (alloc/free list nodes + mutex)        | **High**      | Critical: memory structure integrity; incorrect freeing could allow corruption.          |
+| `0xAE540`  | `InitFunc_5`  | Memory Pool Init (custom allocator, mutex-protected)            | Medium        | Medium: efficiency / resource handling; potential leaks if bypassed.                     |
+| `0xC575C`  | `InitFunc_6`  | Lock System Init (two independent recursive locks)              | Medium        | Medium: threading safety; protects shared resources.                                     |
+| `0xC59A0`  | `InitFunc_7`  | Cache Lock Init (dedicated mutex for cache or shared state)     | Medium        | Medium: ensures cache consistency; low risk if bypassed.                                 |
+| `0x228B24` | `InitFunc_8`  | Mutex A Init (recursive lock, cleanup on exit)                  | Low           | Low: general-purpose lock.                                                               |
+| `0x228B80` | `InitFunc_9`  | Mutex B Init (recursive lock, cleanup on exit)                  | Low           | Low: general-purpose lock.                                                               |
+| `0x228BDC` | `InitFunc_10` | Mutex C Init (recursive lock, cleanup on exit)                  | Low           | Low: general-purpose lock.                                                               |
+| `0x228C38` | `InitFunc_11` | Mutex D Init (recursive lock, wrapped in ObjC autorelease pool) | Low           | Low: Objective-C integration, low risk.                                                  |
+| `0x228CAC` | `InitFunc_12` | Internal Tree / Hierarchical Structure Init                     | Medium        | Medium: organizes internal data; structural corruption could propagate.                  |
+| `0x228D08` | `InitFunc_13` | Internal Hierarchical Data / Tree Structure Init                | Medium–High   | Important: complex data structure initialization; tampering may break dependent systems. |
+
+```cpp
+// SDK Initialization Sequence with Security Notes
+InitFunc_0  -> String decryption system setup        // HIGH: critical secrets
+InitFunc_1  -> Memory management initialization      // MEDIUM: cleanup / free list
+InitFunc_2  -> Threading / semaphore system activation // MEDIUM: sync primitives
+InitFunc_3  -> Security subsystem deployment         // HIGH: security structures & mutexes
+InitFunc_4  -> Linked list / monitoring system activation // HIGH: memory & data integrity
+InitFunc_5  -> Memory pool / custom allocator setup // MEDIUM: efficiency + resource safety
+InitFunc_6  -> Lock system initialization           // MEDIUM: recursive locks
+InitFunc_7  -> Cache mutex initialization           // MEDIUM: shared state safety
+InitFunc_8  -> Mutex A initialization               // LOW: general-purpose
+InitFunc_9  -> Mutex B initialization               // LOW: general-purpose
+InitFunc_10 -> Mutex C initialization               // LOW: general-purpose
+InitFunc_11 -> Mutex D initialization (autorelease pool wrapped) // LOW: ObjC thread safety
+InitFunc_12 -> Internal hierarchical structure setup // MEDIUM: internal data organization
+InitFunc_13 -> Internal tree / hierarchical data finalization // MEDIUM-HIGH: complex data init
+...47 more functions to discover,imma do it when im interested in ts again
+```
+
+---
+
+## Obfuscation - NOT UP TO DATE AS OF 9/4/2025
 
 ### String Encryption
 
